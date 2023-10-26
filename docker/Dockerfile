@@ -15,9 +15,15 @@ RUN python3 -m pip install numpy matplotlib tqdm
 RUN pip3 install waymo-open-dataset-tf-2-6-0 
 RUN pip3 install tensorflow-addons
 RUN pip3 install wandb
-RUN pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu113
+RUN pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu117 
 RUN pip3 install scikit-learn torchmetrics torchinfo
-
+# Newly added scripts
+RUN pip install protobuf==3.20
+RUN pip install numpy==1.19.2
+RUN pip uninstall typing_extensions
+RUN pip uninstall fastapi
+RUN pip install --no-cache fastapi
+##
 ARG USER=user
 ARG UID=1000
 ARG GID=1000

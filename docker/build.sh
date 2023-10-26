@@ -1,4 +1,5 @@
 #!/bin/bash
-docker build ./docker \
+docker build --no-cache ./docker \
              -f docker/Dockerfile \
-             -t x64/ofmpnet:latest 
+             -t x64/ofmpnet:latest
+              

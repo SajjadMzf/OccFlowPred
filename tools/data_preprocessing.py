@@ -488,16 +488,16 @@ if __name__=="__main__":
     print(f'Processing training data...{len(train_files)} found!')
     print('Starting processing pooling...')
     with Pool(NUM_POOLS) as p:
-        p.map(process_training_data, train_files[:1])
+        p.map(process_training_data, train_files[:])
     
     val_files = glob(f'{args.file_dir}/validation/*')
     print(f'Processing validation data...{len(val_files)} found!')
     print('Starting processing pooling...')
     with Pool(NUM_POOLS) as p:
-        p.map(process_val_data, val_files[:1])
+        p.map(process_val_data, val_files[:])
     
     test_files = glob(f'{args.file_dir}/testing/*')
     print(f'Processing validation data...{len(test_files)} found!')
     print('Starting processing pooling...')
     with Pool(NUM_POOLS) as p:
-        p.map(process_test_data, test_files[:1])
+        p.map(process_test_data, test_files[:])
