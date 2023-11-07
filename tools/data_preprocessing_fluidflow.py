@@ -282,7 +282,7 @@ class Processor(object):
             return np.zeros((num_segs,10,4+3))
 
     def ogm_process(self,inputs):
-        timestep_grids = occupancy_flow_grids.create_ground_truth_timestep_grids(inputs, self.config) # (inputs, self.ogm_config)
+        timestep_grids = occupancy_flow_grids.create_ground_truth_timestep_grids(inputs, self.ogm_config) # (inputs, self.ogm_config)
         gt_v_ogm = tf.concat([timestep_grids.vehicles.past_occupancy,timestep_grids.vehicles.current_occupancy],axis=-1)
         gt_o_ogm = tf.concat([tf.clip_by_value(
                 timestep_grids.pedestrians.past_occupancy +
@@ -572,8 +572,8 @@ class Processor(object):
         ax.set_xticklabels([])
         ax.set_yticklabels([])
 
-        plt.show()
-        if PLOT: fig.savefig('myfig.pdf')
+        
+        if PLOT: plt.show(); fig.savefig('myfig.pdf')
         # input()
         # convert plot to numpy array
         fig.canvas.draw()
@@ -592,7 +592,7 @@ class Processor(object):
                  16:['y', 'solid', 4.5*1.5], 17:['r', '-.', 40], 18:['b', 'solid', 3], 19:['xkcd:orange', 'solid', 13]}
             vmag=((self.simFields['u'][0]**2).sum(axis=-1))**0.5
             # vmag[np.where(self.fields['ns'][0,:,:,0])] = 'nan'
-            VX, VY = self.simFields['u'][0,:,:,2], self.simFields['u'][0,:,:,1]
+            VX, VY = self.simFields['u'][0,:,:,2], self.simFields['u'][0,:,:,1]  #### extracting velocity vector field
             angV = np.arctan2(VY,VX)
             toplot = angV
             toplot[np.where(self.simFields['ns'][0,:,:,0])] = 'nan'
@@ -655,8 +655,8 @@ class Processor(object):
         ax2.set_xticklabels([])
         ax2.set_yticklabels([])
 
-        plt.show()
-        if PLOT: fig2.savefig('myfig_array.png', dpi=dpi)
+        
+        if PLOT: plt.show(); fig2.savefig('myfig_array.png', dpi=dpi)
 
         ###################################
         # visualize the image                   
@@ -879,7 +879,7 @@ if __name__=="__main__":
     parser.add_argument('--ids_dir', type=str, help='ids.txt downloads from Waymos', default="/media/wmg-5gcat/ssd-roger/Waymo_Dataset/occupancy_flow_challenge")
     parser.add_argument('--save_dir', type=str, help='saving directory',default="/media/wmg-5gcat/ssd-roger/Waymo_Dataset/preprocessed_data2")
     parser.add_argument('--file_dir', type=str, help='Dataset directory',default="/media/wmg-5gcat/ssd-roger/Waymo_Dataset/tf_example")
-    parser.add_argument('--pool', type=int, help='num of pooling multi-processes in preprocessing',default=36)
+    parser.add_argument('--pool', type=int, help='num of pooling multi-processes in preprocessing',default=32)
     args = parser.parse_args()
 
     # NUM_POOLS = args.pool
@@ -907,16 +907,16 @@ if __name__=="__main__":
     print(f'Processing training data...{len(train_files)} found!')
     print('Starting processing pooling...')
     with Pool(NUM_POOLS) as p:
-        p.map(process_training_data, train_files[:])
+        p.map(process_training_data, train_files[:30])
     
     val_files = glob(f'{args.file_dir}/validation/*')
     print(f'Processing validation data...{len(val_files)} found!')
     print('Starting processing pooling...')
     with Pool(NUM_POOLS) as p:
-        p.map(process_val_data, val_files[:])
+        p.map(process_val_data, val_files[:30])
     
     test_files = glob(f'{args.file_dir}/testing/*')
     print(f'Processing validation data...{len(test_files)} found!')
     print('Starting processing pooling...')
     with Pool(NUM_POOLS) as p:
-        p.map(process_test_data, test_files[:])
+        p.map(process_test_data, test_files[:30])

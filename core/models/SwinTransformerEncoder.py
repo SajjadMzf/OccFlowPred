@@ -396,6 +396,10 @@ class SwinTransformerEncoder(torch.nn.Module):
                     img_size=img_size, patch_size=patch_size, in_chans=2, embed_dim=embed_dim,
                     norm_layer=norm_layer if self.patch_norm else None)
                 
+                self.patch_embed_flow_ff = PatchEmbed(
+                    img_size=img_size, patch_size=patch_size, in_chans=2, embed_dim=embed_dim,
+                    norm_layer=norm_layer if self.patch_norm else None)        
+                        
                 if self.flow_sep:
                     self.flow_norm = norm_layer(eps=1e-5, normalized_shape=embed_dim )
                     self.flow_layer = BasicLayer(dim=int(embed_dim * (2 ** 0)),
@@ -414,6 +418,22 @@ class SwinTransformerEncoder(torch.nn.Module):
                                                         0 < self.num_layers - 1) else None,# No downsample of the last layer
                                                     use_checkpoint=use_checkpoint,
                                                     prefix=f'flow_layers{0}')      
+                    self.flow_layer_ff = BasicLayer(dim=int(embed_dim * (2 ** 0)),
+                                                    input_resolution=(patches_resolution[0] // (2 ** 0),
+                                                                    patches_resolution[1] // (2 ** 0)),
+                                                    depth=depths[0],
+                                                    num_heads=num_heads[0],
+                                                    window_size=window_size,
+                                                    mlp_ratio=self.mlp_ratio,
+                                                    qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                    drop=drop_rate, attn_drop=attn_drop_rate,
+                                                    drop_path_prob=dpr[sum(depths[:0]):sum(
+                                                        depths[:0 + 1])],
+                                                    norm_layer=norm_layer,
+                                                    downsample=PatchMerging if (
+                                                        0 < self.num_layers - 1) else None,# No downsample of the last layer
+                                                    use_checkpoint=use_checkpoint,
+                                                    prefix=f'flow_layers{1}')                      
             if not self.no_map:
                 self.patch_embed_map = PatchEmbed(
                     img_size=(256,256), patch_size=patch_size, in_chans=3, embed_dim=embed_dim,
@@ -451,7 +471,7 @@ class SwinTransformerEncoder(torch.nn.Module):
         # self(dummy_ogm,dummy_map,dummy_flow)
         # summary(self)
 
-    def forward_features(self,x,map_img,flow=None,training=True):
+    def forward_features(self,x,map_img,flow=None,training=True, flow_ff=None):
         if self.sep_encode:
             vec,ped_cyc = x[:,:,:,:,0],x[:,:,:,:,1]
             if self.no_map:
@@ -459,7 +479,13 @@ class SwinTransformerEncoder(torch.nn.Module):
             elif self.flow_sep and self.use_flow:
                 flow = self.patch_embed_flow(flow)
                 flow = self.flow_norm(flow)
+                # print('0000000000000000000',flow.shape)
                 flow_x,flow_res = self.flow_layer(flow,training)
+                flow_ff = flow_ff.float()
+                flow_ff = self.patch_embed_flow_ff(flow_ff)
+                flow_ff = self.flow_norm(flow_ff)
+                # print('0000000000000000000',flow_ff.shape)
+                flow_x_ff,flow_res_ff = self.flow_layer_ff(flow_ff,training)
                 if not self.large_input:
                     x = self.patch_embed_vecicle(vec) +  self.patch_embed_map(map_img)
                 else:
@@ -494,7 +520,7 @@ class SwinTransformerEncoder(torch.nn.Module):
                 assert H % 2 == 0 and W % 2 == 0, f"x size ({H}*{W}) are not even."
                 res = torch.reshape(res, shape=[-1, H, W, C])
             if i==0 and self.flow_sep and self.use_flow:
-                x = x + flow_x
+                x = x + flow_x + flow_x_ff 
                 if self.large_input:
                     flow_res = torch.reshape(torch.reshape(flow_res,[-1,128,128,self.embed_dim])[:,32:32+64,32:32+64,:],[-1,64*64,96])
                 res_list.append(flow_res)
@@ -507,8 +533,8 @@ class SwinTransformerEncoder(torch.nn.Module):
             res_list.append(res)
         return res_list
 
-    def forward(self, x,map_img,flow,training=True):
-        x = self.forward_features(x,map_img,flow,training)
+    def forward(self, x,map_img,flow,training=True, flow_ff=None):
+        x = self.forward_features(x,map_img,flow,training,flow_ff)
         return x
 
 

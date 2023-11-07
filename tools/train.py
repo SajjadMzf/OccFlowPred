@@ -192,7 +192,7 @@ def model_training(gpu_id, world_size):
         with open('wandb_api_key.txt') as f:
             os.environ["WANDB_API_KEY"] = f.read()
         os.environ["WANDB_MODE"] = 'online' # offline, online, disabled, dryrun, sync
-        wandb.init(project="ofmpnet", entity="youshaamurhij", name=args.title)
+        wandb.init(project="ofp", entity="ofp", name=args.title)
         wandb.config.update(args)
         
     if CHECKPOINT_PATH is not None:
@@ -241,6 +241,18 @@ def model_training(gpu_id, world_size):
             ogm = data['ogm']
             flow = data['vec_flow']
 
+            upsample1 = torch.nn.Upsample(scale_factor=2)
+            flow_ff0 = data['vec_fluidflow'][:,0,:,:,1:]
+            flow_ff = flow_ff0.clone()
+            # flow_ff = flow_ff[:,:,2:0:-1] 
+            flow_ff[:,:,0] = flow_ff0[:,:,1]
+            flow_ff[:,:,1] = flow_ff0[:,:,0]
+            flow_ff = flow_ff.permute(0,3,1,2)
+            flow_ff = upsample1(flow_ff)
+            flow_ff = flow_ff.permute(0,2,3,1) 
+                       
+            # print('--------------------------',flow.shape,'=================', flow_ff.shape)
+
             # ground truths directly passed to device for loss / metrics
             gt_obs_ogm = data['gt_obs_ogm'].to(gpu_id)
             gt_occ_ogm = data['gt_occ_ogm'].to(gpu_id)
@@ -248,7 +260,7 @@ def model_training(gpu_id, world_size):
             origin_flow = data['origin_flow'].to(gpu_id)
 
             # forward pass
-            outputs = model(ogm,map_img,obs=actors,occ=occl_actors,mapt=centerlines,flow=flow)
+            outputs = model(ogm,map_img,obs=actors,occ=occl_actors,mapt=centerlines,flow=flow, flow_ff=flow_ff)
 
             # compute loss
             true_waypoints = _warpped_gt(gt_ogm=gt_obs_ogm,gt_occ=gt_occ_ogm,gt_flow=gt_flow,origin_flow=origin_flow)
@@ -308,6 +320,16 @@ def model_training(gpu_id, world_size):
                 ogm = data['ogm']
                 flow = data['vec_flow']
 
+                upsample1 = torch.nn.Upsample(scale_factor=2)
+                flow_ff0 = data['vec_fluidflow'][:,0,:,:,1:]
+                flow_ff = flow_ff0.clone()
+                # flow_ff = flow_ff[:,:,2:0:-1] 
+                flow_ff[:,:,0] = flow_ff0[:,:,1]
+                flow_ff[:,:,1] = flow_ff0[:,:,0]
+                flow_ff = flow_ff.permute(0,3,1,2)
+                flow_ff = upsample1(flow_ff)
+                flow_ff = flow_ff.permute(0,2,3,1)                 
+
                 # ground truths directly put on device for loss / metrics
                 gt_obs_ogm  = data['gt_obs_ogm'].to(gpu_id)
                 gt_occ_ogm  = data['gt_occ_ogm'].to(gpu_id)
@@ -316,7 +338,7 @@ def model_training(gpu_id, world_size):
 
 
                 # forward pass
-                outputs = model(ogm,map_img,obs=actors,occ=occl_actors,mapt=centerlines,flow=flow)
+                outputs = model(ogm,map_img,obs=actors,occ=occl_actors,mapt=centerlines,flow=flow, flow_ff=flow_ff)
 
                 # compute losses
                 true_waypoints = _warpped_gt(gt_ogm=gt_obs_ogm,gt_occ=gt_occ_ogm,gt_flow=gt_flow,origin_flow=origin_flow)
@@ -374,10 +396,10 @@ parser = argparse.ArgumentParser(description='OFMPNet Training')
 parser.add_argument('--save_dir', type=str,
                     help='saving directory', default="./experiments")
 parser.add_argument('--file_dir', type=str, help='Training Val Dataset directory',
-                    default="./Waymo_Dataset/preprocessed_data")
+                    default="./Waymo_Dataset/preprocessed_data2")
 parser.add_argument('--model_path', type=str,
                     help='loaded weight path', default=None)
-parser.add_argument('--batch_size', type=int, help='batch_size', default=6)
+parser.add_argument('--batch_size', type=int, help='batch_size', default=8)
 parser.add_argument('--epochs', type=int, help='training eps', default=15)
 parser.add_argument('--lr', type=float,
                     help='initial learning rate', default=1e-4)

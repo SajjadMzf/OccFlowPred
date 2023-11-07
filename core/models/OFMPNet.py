@@ -48,10 +48,10 @@ class OFMPNet(torch.nn.Module):
         # self(dummy_ogm,dummy_map,obs=dummy_obs_actors,occ=dummy_occ_actors,mapt=dummy_ccl,flow=dummy_flow)
         summary(self)
     
-    def forward(self,ogm,map_img,training=True,obs=None,occ=None,mapt=None,flow=None,dense_vec=None,dense_map=None):
+    def forward(self,ogm,map_img,training=True,obs=None,occ=None,mapt=None,flow=None,dense_vec=None,dense_map=None, flow_ff=None):
 
         #visual encoder:
-        res_list = self.encoder(ogm,map_img,flow,training)
+        res_list = self.encoder(ogm,map_img,flow,training,flow_ff)
         q = res_list[-1]
 
         if self.fg_msa:
