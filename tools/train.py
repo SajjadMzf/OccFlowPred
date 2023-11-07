@@ -374,10 +374,10 @@ parser = argparse.ArgumentParser(description='OFMPNet Training')
 parser.add_argument('--save_dir', type=str,
                     help='saving directory', default="./experiments")
 parser.add_argument('--file_dir', type=str, help='Training Val Dataset directory',
-                    default="./Waymo_Dataset/preprocessed_data")
+                    default="./Waymo_Dataset/preprocessed_data2")
 parser.add_argument('--model_path', type=str,
                     help='loaded weight path', default=None)
-parser.add_argument('--batch_size', type=int, help='batch_size', default=6)
+parser.add_argument('--batch_size', type=int, help='batch_size', default=8)
 parser.add_argument('--epochs', type=int, help='training eps', default=15)
 parser.add_argument('--lr', type=float,
                     help='initial learning rate', default=1e-4)
