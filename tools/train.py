@@ -32,7 +32,7 @@ ogm_weight  = 1000.0
 occ_weight  = 1000.0
 flow_weight = 1.0
 flow_origin_weight = 1000.0
-
+PLOT = False
 # torch.autograd.set_detect_anomaly(True)
 def ddp_setup(rank, world_size):
     """
@@ -242,15 +242,32 @@ def model_training(gpu_id, world_size):
             flow = data['vec_flow']
 
             upsample1 = torch.nn.Upsample(scale_factor=2)
-            flow_ff0 = data['vec_fluidflow'][:,0,:,:,1:]
-            flow_ff = flow_ff0.clone()
-            # flow_ff = flow_ff[:,:,2:0:-1] 
-            flow_ff[:,:,0] = flow_ff0[:,:,1]
-            flow_ff[:,:,1] = flow_ff0[:,:,0]
+            flow_ff = data['vec_fluidflow']
+            # flow_ff = flow_ff0.clone()
+            # # flow_ff = flow_ff[:,:,2:0:-1] 
+            # flow_ff[:,:,0] = flow_ff0[:,:,1]
+            # flow_ff[:,:,1] = flow_ff0[:,:,0]
+            # print('--------------------------',flow_ff.shape,'=================', flow.shape)
             flow_ff = flow_ff.permute(0,3,1,2)
             flow_ff = upsample1(flow_ff)
             flow_ff = flow_ff.permute(0,2,3,1) 
-                       
+
+            if PLOT:
+                from matplotlib import pyplot as plt
+                import numpy as np
+                figg, axx = plt.subplots(1,2)  
+                batch_n = 5
+                VX, VY = flow_ff[batch_n,:,:,0].cpu().numpy(), flow_ff[batch_n,:,:,1].cpu().numpy()
+                angV = np.arctan2(VY,VX) 
+                axx[0].imshow(angV, cmap = 'hsv', vmax = np.pi, vmin = -np.pi, origin='lower')    
+                # axx[0].imshow(ogm[batch_n,:,:,0,0], origin='lower') 
+                VX2, VY2 = flow[batch_n,:,:,0].cpu().numpy(), flow[batch_n,:,:,1].cpu().numpy()
+                angV2 = np.arctan2(VY2,VX2) 
+                # axx[1].imshow(angV2, cmap = 'hsv', vmax = np.pi, vmin = -np.pi, origin='lower')   
+                # axx[1].imshow(map_img[batch_n,:,:,:], origin='lower')   
+                axx[1].imshow(ogm[batch_n,:,:,-1,0], origin='lower')  
+                plt.show()
+                figg.savefig('train_plot_test.png')  
             # print('--------------------------',flow.shape,'=================', flow_ff.shape)
 
             # ground truths directly passed to device for loss / metrics
@@ -321,11 +338,11 @@ def model_training(gpu_id, world_size):
                 flow = data['vec_flow']
 
                 upsample1 = torch.nn.Upsample(scale_factor=2)
-                flow_ff0 = data['vec_fluidflow'][:,0,:,:,1:]
-                flow_ff = flow_ff0.clone()
-                # flow_ff = flow_ff[:,:,2:0:-1] 
-                flow_ff[:,:,0] = flow_ff0[:,:,1]
-                flow_ff[:,:,1] = flow_ff0[:,:,0]
+                flow_ff = data['vec_fluidflow']
+                # flow_ff = flow_ff0.clone()
+                # # flow_ff = flow_ff[:,:,2:0:-1] 
+                # flow_ff[:,:,0] = flow_ff0[:,:,1]
+                # flow_ff[:,:,1] = flow_ff0[:,:,0]
                 flow_ff = flow_ff.permute(0,3,1,2)
                 flow_ff = upsample1(flow_ff)
                 flow_ff = flow_ff.permute(0,2,3,1)                 

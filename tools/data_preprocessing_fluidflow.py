@@ -29,6 +29,7 @@ import matplotlib as mpl
 import argparse
 from lbm.pylbm import LBM
 import networkx as Nx
+from skimage.measure import block_reduce
 
 mpl.use('Agg')
 
@@ -96,7 +97,7 @@ class Processor(object):
         grid_width_cells: 256
         sdc_y_in_grid: 192
         sdc_x_in_grid: 128
-        pixels_per_meter: 3.2
+        pixels_per_meter: 3.2 
         agent_points_per_side_length: 48
         agent_points_per_side_width: 16
         """
@@ -120,11 +121,13 @@ class Processor(object):
         """
         text_format.Parse(oconfig_text, ogm_config)
         self.ogm_config = ogm_config
-        # self.config = config
+        self.config_2 = ogm_config
+        # self.config = ogm_config
 
     def read_data(self, parsed):
         
         map_traj,real_map_traj,map_valid,actor_traj,traj_mask,occu_mask,actor_valid = rotate_all_from_inputs(parsed, self.config)
+        map_traj_2,real_map_traj_2,map_valid_2,actor_traj_2,traj_mask_2,occu_mask_2,actor_valid_2 = rotate_all_from_inputs(parsed, self.config_2) 
         
         # actor traj
         self.actor_traj = actor_traj[0].numpy()
@@ -148,6 +151,32 @@ class Processor(object):
         self.roadgraph_type = roadgraph_type[v_mask]
         self.roadgraph_real_traj = real_map_traj[v_mask]
         self.roadgraph_id = roadgraph_id[v_mask]
+
+        ######################## additional _2
+        # actor traj
+        self.actor_traj_2 = actor_traj_2[0].numpy()
+        self.traj_mask_2 = traj_mask_2[0,:].numpy()
+        self.occu_mask_2 = occu_mask_2[0,:].numpy()
+        #[batch,actor_num,11,1]
+        self.actor_valid_2 = actor_valid_2[0,:,:,0].numpy()
+        self.actor_type_2 = parsed['state/type'][0].numpy()
+
+        # road map
+        roadgraph_xyz_2 = map_traj_2[0].numpy()
+        real_map_traj_2 = real_map_traj_2[0].numpy()
+        roadgraph_dir_2 = parsed['roadgraph_samples/dir'][0].numpy()
+        roadgraph_type_2 = parsed['roadgraph_samples/type'][0].numpy()
+        roadgraph_id_2 = parsed['roadgraph_samples/id'][0].numpy()
+        roadgraph_valid_2 = map_valid_2[0,:,0].numpy()
+        # print(roadgraph_valid)
+        v_mask_2 = np.where(roadgraph_valid_2)
+        self.roadgraph_xyz_2 = roadgraph_xyz_2[v_mask_2]
+        self.roadgraph_dir_2 = roadgraph_dir_2[v_mask_2]
+        self.roadgraph_type_2 = roadgraph_type_2[v_mask_2]
+        self.roadgraph_real_traj_2 = real_map_traj_2[v_mask_2]
+        self.roadgraph_id_2 = roadgraph_id_2[v_mask_2]
+
+        ########################
 
         # print(len(self.roadgraph_id))
         self.roadgraph_uid = np.unique(self.roadgraph_id)
@@ -293,11 +322,10 @@ class Processor(object):
                 ],axis=-1)
         ogm = tf.stack([gt_v_ogm,gt_o_ogm],axis=-1)
         return ogm[0].numpy().astype(np.bool_),timestep_grids
-    
+
     def image_process(self,show_image=False,num=0):
-        self.notValidFrm = []
+
         fig, ax = plt.subplots()
-        # fig.subplots_adjust(0,0,1,1) # Reza
         dpi = 1
         size_inches = self.img_size / dpi
 
@@ -312,17 +340,84 @@ class Processor(object):
         
         # plot static roadmap
         big=80
-        pnts = self.roadgraph_xyz
+        for t in self.roadgraph_types:
+            road_points = self.roadgraph_xyz[np.where(self.roadgraph_type==t)[0]]
+            road_points = road_points[:, :2]
+            point_id = self.roadgraph_id[np.where(self.roadgraph_type==t)[0]]
+            if t in set([1, 2, 3]):
+                lines,_,_  = extract_lines(road_points, point_id, t)
+                for line in lines:
+                    ax.plot([point[0] for point in line], [point[1] for point in line], 
+                             color=road_line_map[t][0], linestyle=road_line_map[t][1], linewidth=road_line_map[t][2]*big, alpha=1, zorder=1)
+            elif t == 17: # plot stop signs
+                ax.plot(road_points.T[0, :], road_points.T[1, :], road_line_map[t][1], color=road_line_map[t][0], markersize=road_line_map[t][2]*big)
+            elif t in set([18, 19]): # plot crosswalk and speed bump
+                rects,_,_  = extract_lines(road_points, point_id, t)
+                for rect in rects:
+                     area = plt.fill([point[0] for point in rect], [point[1] for point in rect], color=road_line_map[t][0], alpha=0.7, zorder=2)
+            else: # plot other elements
+                lines,_,_  = extract_lines(road_points, point_id, t)
+                for line in lines:
+                    ax.plot([point[0] for point in line], [point[1] for point in line], 
+                            color=road_line_map[t][0], linestyle=road_line_map[t][1], linewidth=road_line_map[t][2]*big)
+
+        # plot traffic lights
+        for lx, ly, ls in zip(self.traffic_light_x, self.traffic_light_y, self.traffic_light_state):
+            light_circle = plt.Circle((lx, ly), 1.5*big, color=light_state_map[ls], zorder=2)
+            ax.add_artist(light_circle)
+
+        pixels_per_meter = 1#self.config.pixels_per_meter
+        range_x = self.config.sdc_x_in_grid
+        range_y = self.config.sdc_y_in_grid
+
+        ax.axis([0,256,0,256])
+        ax.set_aspect('equal')
+
+        # convert plot to numpy array
+        fig.canvas.draw()
+        array = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        array = array.reshape(fig.canvas.get_width_height() + (3,))[::-1,:,:]
+
+        plt.close('all')
+
+        # visualize the image                   
+        if show_image:
+            img = self.Image.fromarray(array, 'RGB')
+            time.sleep(30)
+            plt.imshow(array)
+        return array
+
+    def image_process_2(self,show_image=False,num=0, vec_flow=None):
+        self.notValidFrm = []
+        fig, ax = plt.subplots()
+        # fig.subplots_adjust(0,0,1,1) # Reza
+        dpi = 1
+        size_inches = self.img_size / dpi
+
+        fig.set_size_inches([self.config_2.grid_width_cells, self.config_2.grid_height_cells])
+        fig.set_dpi(dpi)
+        fig.set_tight_layout(True)
+        fig.set_facecolor('k')
+        ax.set_facecolor('k') #
+        ax.grid(False)
+        ax.margins(0)
+        ax.axis('off')
+        
+        # plot static roadmap
+        big=80
+        pnts = self.roadgraph_xyz_2
         # ax.scatter(pnts[:,0], pnts[:,1], s = 1000, color = 'yellow')
         # drs = self.roadgraph_real_traj[:,2:] # self.roadgraph_dir
         # ax.quiver(pnts[:,0], pnts[:,1], -drs[:,0], drs[:,1], scale=50, color = 'red')   
         #################### LBM
-        nx, ny = int(size_inches), int(size_inches)
+        nx, ny = 256, 256 #int(self.config_2.grid_width_cells), int(self.config_2.grid_height_cells)
         S = LBM((1,nx,ny),nphase=1)
         def cb_vel(self): # -- velocity is (z,y,x,3)
             where = np.where(S.uField == 1)
-            self.fields['u'][0,where[1],where[0],2]=S.ux[where]
-            self.fields['u'][0,where[1],where[0],1]=S.uy[where]
+            self.fields['u'][0,where[0],where[1],2]=S.ux[where]
+            self.fields['u'][0,where[0],where[1],1]=S.uy[where]
+
+            
             # self.fields['u'][0,1:-1,0,2]=.1  # specified vel from left
             # self.fields['u'][0,1:-1,-1,:]=self.fields['u'][0,1:-1,-2,:]  # "open" right      
         # create a convenience function for plotting velocity
@@ -360,12 +455,12 @@ class Processor(object):
         S.uy = np.zeros((nx,ny))
         S.uField = np.zeros((nx,ny))
         ##################     
-        cnd = (np.where((self.roadgraph_type==1) | (self.roadgraph_type==2) | (self.roadgraph_type==3)))
-        road_points = self.roadgraph_xyz[cnd[0]]
+        cnd = (np.where((self.roadgraph_type_2==1) | (self.roadgraph_type_2==2) | (self.roadgraph_type_2==3)))
+        road_points = self.roadgraph_xyz_2[cnd[0]]
         road_points = road_points[:, :2]
-        road_dirs = self.roadgraph_real_traj[cnd[0]]
+        road_dirs = self.roadgraph_real_traj_2[cnd[0]]
         road_dirs = road_dirs[:,2:]
-        point_id = self.roadgraph_id[cnd[0]]
+        point_id = self.roadgraph_id_2[cnd[0]]
         lines, IDs, pl_id = extract_lines(road_points, point_id, 1)
         #########################  road tree
         start = []
@@ -394,12 +489,14 @@ class Processor(object):
         G.add_edges_from(g_edge)
         figG = plt.figure(figsize =(9, 9)) 
         Nx.draw_networkx(G, node_color ='green') 
-        figG.savefig('graph.png')
+        if PLOT: figG.savefig('graph.png')
         # valid actors
-        traj_m = np.where(self.traj_mask)
-        valid_actor = self.actor_traj[traj_m]
-        valid_mask = self.actor_valid[traj_m]
-        valid_type = self.actor_type[traj_m]
+        traj_m = np.where(self.traj_mask_2)
+        occu_m = np.where(self.occu_mask_2)
+        mask_actor = traj_m; #traj_m or occu_m
+        valid_actor = self.actor_traj_2[mask_actor]
+        valid_mask = self.actor_valid_2[mask_actor]
+        valid_type = self.actor_type_2[mask_actor]
         vec_actor = valid_actor[np.where(valid_type == 1)]
 
         #########################
@@ -407,9 +504,9 @@ class Processor(object):
         th = 10 # 0-->10
         points_x = vec_actor[:,th,0]
         points_y = vec_actor[:,th,1]
-        pixels_per_meter = self.config.pixels_per_meter
-        points_x = np.round(points_x * pixels_per_meter) + self.config.sdc_x_in_grid
-        points_y = np.round(-points_y * pixels_per_meter) + self.config.sdc_y_in_grid
+        pixels_per_meter = self.config_2.pixels_per_meter
+        points_x = np.round(points_x * pixels_per_meter) + self.config_2.sdc_x_in_grid
+        points_y = np.round(-points_y * pixels_per_meter) + self.config_2.sdc_y_in_grid
         poitns = np.column_stack((points_x, points_y))
 
         if PLOT:
@@ -422,7 +519,7 @@ class Processor(object):
             ax.quiver(points_x,points_y,vec_actor[:,th,2],-vec_actor[:,th,3], scale = 80, color='red', zorder=3)    
         ######################## finding line coresponding to actors
         cnodes = np.array([])
-        array_x, array_y = np.meshgrid(range(256),range(256))
+        # array_x, array_y = np.meshgrid(range(self.config_2.grid_width_cells),range(self.config_2.grid_height_cells))
         if centerLine_exist:
             for ivec in range(poitns.shape[0]):
                 actor_dx = road_points - poitns[ivec,:]
@@ -472,13 +569,13 @@ class Processor(object):
 
                 ############# BC for lbm simulation
                 ## Version 1
-                r_bc = 5
-                pnt_start_bc = closest_point # poitns[ivec,:]
-                mask_bc =  np.where((array_x-pnt_start_bc[0])**2+(array_y-pnt_start_bc[1])**2 < r_bc**2)
-                px, py = array_x[mask_bc], array_y[mask_bc]
-                S.ux[px,py] = actor_v[0]*actor_speed*.003
-                S.uy[px,py] = actor_v[1]*actor_speed*.003
-                S.uField[px,py] = 1       
+                # r_bc = 8 #5
+                # pnt_start_bc = closest_point #closest_point # poitns[ivec,:]
+                # mask_bc =  np.where((array_x-pnt_start_bc[0])**2+(array_y-pnt_start_bc[1])**2 < r_bc**2)
+                # px, py = array_x[mask_bc], array_y[mask_bc]
+                # S.ux[px,py] = -actor_v[0]*actor_speed*.003
+                # S.uy[px,py] = -actor_v[1]*actor_speed*.003
+                # S.uField[px,py] = 1       
 
                 ## Version 2   
                 # px, py = np.round(ch_points[:,0]).astype(int),  np.round(ch_points[:,1]).astype(int)
@@ -490,14 +587,29 @@ class Processor(object):
                 #     color='yellow', linestyle=road_line_map[1][1], linewidth=road_line_map[1][2]*big, alpha=1, zorder=1)
                 # ax.plot(ch_points[:,0], ch_points[:,1], 
                 #     color='yellow', linestyle=road_line_map[1][1], linewidth=600, alpha=1, zorder=1)
-                sPlot = 4e5
+                sPlot = 8e5
                 if PLOT: sPlot = 1e5
+                # if PLOT:
                 ax.scatter(ch_points[:,0], ch_points[:,1], ####################### 
                     color='yellow',s = sPlot, zorder=1)            
                 #####
                 if PLOT:
                     ax.quiver(points_x[ivec],points_y[ivec],vec_actor[ivec,th,2],-vec_actor[ivec,th,3], scale = 80, color='blue', zorder=4)
-        ########################     
+        ########################    
+        ### BC for lbm simulation (all at once from occupancy flow)
+        # vec_flow = np.rot90(vec_flow, 3)
+        # vec_flow = np.fliplr(vec_flow)
+        vec_flow = block_reduce(vec_flow, block_size=(2,2,1), func=np.mean) # np.resize(vec_flow, (nx,ny,2))
+        mask_bc =  np.where((vec_flow[:,:,0]!=0.) | (vec_flow[:,:,1]!=0.))
+        S.ux[mask_bc] = vec_flow[:,:,0][mask_bc]*.003
+        S.uy[mask_bc] = vec_flow[:,:,1][mask_bc]*.003
+        S.uField[mask_bc] = 1       
+        # S.ux[:] = vec_flow[:,:,0]*.003
+        # S.uy[:] = vec_flow[:,:,1]*.003
+        # S.uField[:] = 1 
+        
+        ### 
+
         if PLOT:       
             for iline, line in enumerate(lines):
                 clr = colors[iline]
@@ -530,40 +642,7 @@ class Processor(object):
         # S.uy[px,py] = S.uy[px,py] - FLOW[px,py,1]*.003                    
         # S.uField[px,py] = 1      
 
-        for t in self.roadgraph_types:
-            road_points = self.roadgraph_xyz[np.where(self.roadgraph_type==t)[0]]
-            road_points = road_points[:, :2]
-            road_dirs = self.roadgraph_real_traj[np.where(self.roadgraph_type==t)[0]]
-            road_dirs = road_dirs[:,2:]
-            point_id = self.roadgraph_id[np.where(self.roadgraph_type==t)[0]]
-            if t in set([1, 2, 3]): # [1, 2, 3]
-                lines,_,_ = extract_lines(road_points, point_id, t)
-                for line in lines:
-                    # ax.plot([point[0] for point in line], [point[1] for point in line], 
-                    #          color=road_line_map[t][0], linestyle=road_line_map[t][1], linewidth=400, alpha=1, zorder=1)
-                    pass
-        #     elif t == 17: # plot stop signs
-        #         ax.plot(road_points.T[0, :], road_points.T[1, :], road_line_map[t][1], color=road_line_map[t][0], markersize=road_line_map[t][2]*big)
-        #     elif t in set([18, 19]): # plot crosswalk and speed bump
-        #         rects, IDs, pl_id = extract_lines(road_points, point_id, t)
-        #         for rect in rects:
-        #              area = plt.fill([point[0] for point in rect], [point[1] for point in rect], color=road_line_map[t][0], alpha=0.7, zorder=2)
-        #     else: # plot other elements
-        #         lines, IDs, pl_id = extract_lines(road_points, point_id, t)
-        #         for line in lines:
-        #             ax.plot([point[0] for point in line], [point[1] for point in line], 
-        #                     color=road_line_map[t][0], linestyle=road_line_map[t][1], linewidth=road_line_map[t][2]*big)
-
-        # # plot traffic lights
-        for lx, ly, ls in zip(self.traffic_light_x, self.traffic_light_y, self.traffic_light_state):
-            light_circle = plt.Circle((lx, ly), 1.5*big, color=light_state_map[ls], zorder=2)
-            ax.add_artist(light_circle)
-
-        pixels_per_meter = 1#self.config.pixels_per_meter
-        range_x = self.config.sdc_x_in_grid
-        range_y = self.config.sdc_y_in_grid
-
-        ax.axis([0,256,0,256])
+        ax.axis([0,self.config_2.grid_width_cells,0,self.config_2.grid_height_cells])
         ax.set_aspect('equal')
         # plt.gca().set_position([0, 0, 1, 1])
 
@@ -577,9 +656,10 @@ class Processor(object):
         # input()
         # convert plot to numpy array
         fig.canvas.draw()
-        array = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        array = array.reshape(fig.canvas.get_width_height() + (3,))[::-1,:,:]
-        array_g = np.dot(array[...,:3], [0.2989, 0.5870, 0.1140]).astype(bool).astype(int)
+        array_g = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        array_g = array_g.reshape(fig.canvas.get_width_height() + (3,))[::-1,:,:]
+        array_g = np.dot(array_g[...,:3], [0.2989, 0.5870, 0.1140]).astype(bool).astype(int)
+        array_g = block_reduce(array_g, block_size=(2,2), func=np.max) # np.resize(array_g, (nx,ny))
         plt.close('all')
         # plt.cla()
         S.fields['ns'][0,:,:,0] = 1-array_g
@@ -635,7 +715,7 @@ class Processor(object):
             #     light_circle = plt.Circle((lx, ly), 1.5*big, color=light_state_map[ls], zorder=2)
             #     axx[0].add_artist(light_circle)
 
-            axx[0].axis([0,256,0,256])
+            axx[0].axis([0,self.config_2.grid_width_cells,0,self.config_2.grid_height_cells])
             axx[0].set_aspect('equal')
             #######
 
@@ -644,27 +724,25 @@ class Processor(object):
             figg.savefig('lbm_fig.png')             
         if PLOT2: afterSimPlot(self)
         ################################### imshow
-        fig2, ax2 = plt.subplots(figsize=(size_inches, size_inches))
-        # fig2.set_size_inches([size_inches, size_inches])
-        # fig2.set_dpi(dpi)
+        # fig2, ax2 = plt.subplots(figsize=(size_inches, size_inches))
+        # # fig2.set_size_inches([size_inches, size_inches])
+        # # fig2.set_dpi(dpi)
 
-        plt.imshow(array, origin='lower')
-        plt.gca().set_position([0, 0, 1, 1])
-        ax2.set_xticks([])
-        ax2.set_yticks([])
-        ax2.set_xticklabels([])
-        ax2.set_yticklabels([])
+        # plt.imshow(array, origin='lower')
+        # plt.gca().set_position([0, 0, 1, 1])
+        # ax2.set_xticks([])
+        # ax2.set_yticks([])
+        # ax2.set_xticklabels([])
+        # ax2.set_yticklabels([])
 
         
-        if PLOT: plt.show(); fig2.savefig('myfig_array.png', dpi=dpi)
+        # if PLOT: plt.show(); fig2.savefig('myfig_array.png', dpi=dpi)
+        
+        flow_ff = np.flip(self.simFields['u'][0,:,:,1:3], axis=2)
 
-        ###################################
-        # visualize the image                   
-        if show_image:
-            img = self.Image.fromarray(array, 'RGB')
-            time.sleep(30)
-            plt.imshow(array)
-        return array
+
+
+        return flow_ff
 
     def gt_process(self,timestep_grids,flow_only=False):
         true_waypoints = occupancy_flow_grids.create_ground_truth_waypoint_grids(timestep_grids=timestep_grids, config=self.config)
@@ -771,6 +849,25 @@ class Processor(object):
                 vec_flow,byc_flow = self.flow_process(timestep_grids)
                 self.FLOW = vec_flow
                 image = self.image_process(show_image=False,num=self.ifrm)
+                flow_ff = self.image_process_2(show_image=False,num=self.ifrm, vec_flow=vec_flow)
+                if PLOT:
+                    fig3, ax3 = plt.subplots(2,2)  
+                    # VX, VY = self.simFields['u'][0,:,:,2], self.simFields['u'][0,:,:,1] 
+                    VX, VY = flow_ff[:,:,0], flow_ff[:,:,1]
+                    angV = np.arctan2(VY,VX) 
+                    # angV[np.where((VX == 0.) & (VY == 0.) )] = 'nan'
+                    ax3[1,1].imshow(angV, cmap = 'hsv', vmax = np.pi, vmin = -np.pi, origin='lower') 
+                    # ax3[1,1].axis([0-rr,self.config_2.grid_height_cells+rr,0-rr,self.config_2.grid_height_cells+rr])  
+                    ax3[1,1].axis([0,256,0,256])  
+                    ax3[0,0].imshow(ogm[:,:,-1,0], origin='lower') 
+                    VX2, VY2 = vec_flow[:,:,0], vec_flow[:,:,1]
+                    angV2 = np.arctan2(VY2,VX2) 
+                    ax3[0,1].imshow(angV2, cmap = 'hsv', vmax = np.pi, vmin = -np.pi, origin='lower')   
+                    ax3[1,0].imshow(image[:,:,:], origin='lower')   
+                    # ax3[1].imshow(ogm[batch_n,:,:,-1,0], origin='lower')  
+                    plt.show()
+                    fig3.savefig('all_plot.png')  
+
                 # image = image.tobytes()
                 # ogm = ogm.tobytes()
 
@@ -816,7 +913,7 @@ class Processor(object):
                     'map_image': image,
                     'vec_flow': vec_flow,
                     'byc_flow': byc_flow,
-                    'vec_fluidflow': self.simFields['u']
+                    'vec_fluidflow': flow_ff
                 }
 
                 if pred or val:
@@ -906,6 +1003,7 @@ if __name__=="__main__":
     train_files = glob(f'{args.file_dir}/training/*')
     print(f'Processing training data...{len(train_files)} found!')
     print('Starting processing pooling...')
+    # process_training_data(train_files[0])
     with Pool(NUM_POOLS) as p:
         p.map(process_training_data, train_files[:30])
     
