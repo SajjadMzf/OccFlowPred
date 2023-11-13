@@ -142,7 +142,8 @@ class Pyramid3DDecoder(nn.Module):
         i = 0
         if self.flow_sep_decode:
             flow_res = res_list[0]
-            res_list = res_list[1:]
+            flow_ff_res = res_list[1]
+            res_list = res_list[2:]
         
         for upsample,uconv_0 in zip(self.upsample,self.upconv_0s):
             x = x.permute(0,4,1,2,3) # B, C, D, H, W
@@ -171,7 +172,10 @@ class Pyramid3DDecoder(nn.Module):
                 flow_res = torch.reshape(flow_res,[-1,64,64,96])
                 flow_res = torch.repeat_interleave(flow_res[:,np.newaxis],repeats=8,dim=1)
                 flow_res = flow_res.permute(0,4,1,2,3) # B, C, D, H, W
-                flow_x = x + self.res_f(flow_res).permute(0,2,3,4,1)
+                flow_ff_res = torch.reshape(flow_ff_res,[-1,64,64,96])
+                flow_ff_res = torch.repeat_interleave(flow_ff_res[:,np.newaxis],repeats=8,dim=1)
+                flow_ff_res = flow_ff_res.permute(0,4,1,2,3)
+                flow_x = x + self.res_f(flow_res).permute(0,2,3,4,1) + self.res_f(flow_ff_res).permute(0,2,3,4,1)
             i+=1
         B, D, H, W, C = x.size()
         x = x.permute(0,1,4,2,3) # B, D, C, H, W

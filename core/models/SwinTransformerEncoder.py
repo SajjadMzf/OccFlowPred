@@ -433,10 +433,10 @@ class SwinTransformerEncoder(torch.nn.Module):
                                                     downsample=PatchMerging if (
                                                         0 < self.num_layers - 1) else None,# No downsample of the last layer
                                                     use_checkpoint=use_checkpoint,
-                                                    prefix=f'flow_layers{1}')                      
+                                                    prefix=f'flow_layers{1}') ## TODO: @Reza are you sure about this?                     
             if not self.no_map:
                 self.patch_embed_map = PatchEmbed(
-                    img_size=(256,256), patch_size=patch_size, in_chans=3, embed_dim=embed_dim,
+                    img_size=img_size, patch_size=patch_size, in_chans=3, embed_dim=embed_dim,
                     norm_layer=norm_layer if self.patch_norm else None)
         # build layers
         self.basic_layers = nn.ModuleList([BasicLayer(dim=int(embed_dim * 2 ** i_layer),
@@ -473,7 +473,8 @@ class SwinTransformerEncoder(torch.nn.Module):
 
     def forward_features(self,x,map_img,flow=None,training=True, flow_ff=None):
         if self.sep_encode:
-            vec,ped_cyc = x[:,:,:,:,0],x[:,:,:,:,1]
+            vec,ped_cyc = x[:,:,:,:,0],x[:,:,:,:,1]## TODO: pedestrians/cyclists are not inputed to the model, 
+                                                    #  to check if they are considered in the result
             if self.no_map:
                 x = self.patch_embed_vecicle(vec)
             elif self.flow_sep and self.use_flow:
@@ -495,35 +496,39 @@ class SwinTransformerEncoder(torch.nn.Module):
                     maps = torch.reshape(maps,[-1,128*128,self.embed_dim])
                     x = self.patch_embed_vecicle(vec)
                     x = x + maps
-            else:
+            else: # TODO: flow_ff is not considered for this case
                 if self.use_flow:
                     x = self.patch_embed_vecicle(vec) +  self.patch_embed_map(map_img) + self.patch_embed_flow(flow)
                 else:
                     x = self.patch_embed_vecicle(vec) +  self.patch_embed_map(map_img)
-        else:
+        else: # TODO: flow_ff is not considered for this case
             x = torch.reshape(x,[-1,256,256,11*2])
             if not self.no_map and self.use_flow:
                 x = torch.concat([x,map_img,flow], dim=-1)
             elif not self.use_flow:
                 x = torch.concat([x,map_img], dim=-1)
             x = self.patch_embed_vecicle(x)
+        
         if self.ape:
             x = x + self.absolute_pos_embed
+        
         x = self.all_patch_norm(x)
         res_list=[]
         for i,st_layer in enumerate(self.basic_layers):
             x,res = st_layer(x,training)
-            if i==self.num_layers - 1:
+            if i==self.num_layers - 1: # last layer
                 H, W = self.final_resolution
                 B, L, C = x.size()
                 assert L == H * W, "input feature has wrong size"
                 assert H % 2 == 0 and W % 2 == 0, f"x size ({H}*{W}) are not even."
                 res = torch.reshape(res, shape=[-1, H, W, C])
-            if i==0 and self.flow_sep and self.use_flow:
+            if i==0 and self.flow_sep and self.use_flow: # first layer
                 x = x + flow_x + flow_x_ff 
                 if self.large_input:
                     flow_res = torch.reshape(torch.reshape(flow_res,[-1,128,128,self.embed_dim])[:,32:32+64,32:32+64,:],[-1,64*64,96])
+                    flow_res_ff = torch.reshape(torch.reshape(flow_res_ff,[-1,128,128,self.embed_dim])[:,32:32+64,32:32+64,:],[-1,64*64,96])
                 res_list.append(flow_res)
+                res_list.append(flow_res_ff)
             if self.large_input:
                 init_res = 128 // (2**i)
                 dim = self.embed_dim * (2**i)

@@ -130,7 +130,7 @@ def setup(gpu_id):
     """
     Setup model, DDP, loss, optimizer and scheduler
     """
-    cfg = dict(input_size=(512,512), window_size=8, embed_dim=96, depths=[2,2,2], num_heads=[3,6,12])
+    cfg = dict(input_size=(IMAGE_SIZE,IMAGE_SIZE), window_size=8, embed_dim=96, depths=[2,2,2], num_heads=[3,6,12])
     model = OFMPNet(cfg,actor_only=True,sep_actors=False, fg_msa=True, fg=True).to(gpu_id)
     model = DDP(model, device_ids=[gpu_id])
     loss_fn = OGMFlow_loss(config,no_use_warp=False,use_pred=False,use_gt=True,
@@ -243,11 +243,6 @@ def model_training(gpu_id, world_size):
 
             upsample1 = torch.nn.Upsample(scale_factor=2)
             flow_ff = data['vec_fluidflow']
-            # flow_ff = flow_ff0.clone()
-            # # flow_ff = flow_ff[:,:,2:0:-1] 
-            # flow_ff[:,:,0] = flow_ff0[:,:,1]
-            # flow_ff[:,:,1] = flow_ff0[:,:,0]
-            # print('--------------------------',flow_ff.shape,'=================', flow.shape)
             flow_ff = flow_ff.permute(0,3,1,2)
             flow_ff = upsample1(flow_ff)
             flow_ff = flow_ff.permute(0,2,3,1) 
@@ -339,10 +334,6 @@ def model_training(gpu_id, world_size):
 
                 upsample1 = torch.nn.Upsample(scale_factor=2)
                 flow_ff = data['vec_fluidflow']
-                # flow_ff = flow_ff0.clone()
-                # # flow_ff = flow_ff[:,:,2:0:-1] 
-                # flow_ff[:,:,0] = flow_ff0[:,:,1]
-                # flow_ff[:,:,1] = flow_ff0[:,:,0]
                 flow_ff = flow_ff.permute(0,3,1,2)
                 flow_ff = upsample1(flow_ff)
                 flow_ff = flow_ff.permute(0,2,3,1)                 
@@ -420,6 +411,7 @@ parser.add_argument('--batch_size', type=int, help='batch_size', default=6)
 parser.add_argument('--epochs', type=int, help='training eps', default=15)
 parser.add_argument('--lr', type=float,
                     help='initial learning rate', default=1e-4)
+parser.add_argument('--image_size', type=int, help='image size', default=512)
 parser.add_argument('--wandb', type=bool, help='wandb logging', default=False)
 parser.add_argument(
     '--title', help='choose a title for your wandb/log process', default="ofmpnet")
@@ -436,7 +428,7 @@ NUM_PRED_CHANNELS = 4
 BATCH_SIZE = args.batch_size
 EPOCHS = args.epochs
 LR = args.lr
-
+IMAGE_SIZE = args.image_size
 os.path.exists(SAVE_DIR) or os.makedirs(SAVE_DIR)
 
 if __name__ == "__main__":
