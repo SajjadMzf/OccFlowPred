@@ -34,7 +34,7 @@ class OFMPNet(torch.nn.Module):
         if fg_msa:
             self.fg_msa_layer = FGMSA(q_size=(16,16), kv_size=(16,16),n_heads=8,n_head_channels=48,n_groups=8,out_dim=384,use_last_ref=False,fg=fg)
         self.decoder = Pyramid3DDecoder(config=None,img_size=cfg['input_size'],pic_dim=768//(2**(4-len(cfg['depths'][:]))),use_pyramid=use_pyramid,timestep_split=True,
-        shallow_decode=(4-len(cfg['depths'][:])),flow_sep_decode=True,conv_cnn=False)
+        shallow_decode=(4-len(cfg['depths'][:])),flow_sep_decode=True,conv_cnn=True, trans_dec =False)
 
         # dummy_ogm =torch.zeros((1,)+cfg['input_size']+(11,2,))
         # dummy_map =torch.zeros((1,)+(256,256)+(3,))

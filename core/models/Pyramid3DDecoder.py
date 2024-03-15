@@ -4,11 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from core.models.ConvLSTM import ConvLSTM
 from torchinfo import summary
-
+import pdb
 class Pyramid3DDecoder(nn.Module):
     def __init__(self,config,img_size,pic_dim, use_pyramid=False,model_name='PyrDecoder',split_pred=False,
         timestep_split=False,double_decode=False,stp_grad=False,shallow_decode=0,flow_sep_decode=False,
-        conv_cnn=False,sep_conv=False,rep_res=True,fg_sep=False):
+        conv_cnn=False,sep_conv=False,rep_res=True,fg_sep=False, trans_dec=False):
         super(Pyramid3DDecoder, self).__init__()
         decode_inds = [4, 3, 2, 1, 0][shallow_decode:]
         decoder_channels = [48, 96, 128, 192, 384]
@@ -17,13 +17,14 @@ class Pyramid3DDecoder(nn.Module):
         self.rep_res = rep_res
 
         #traj-rrc
-
         conv2d_kwargs = {
             'kernel_size': 3,
             'stride': 1,
             'padding': 'same',
         }
-
+        convLSTM_kwargs = {
+            'kernel_size': [[3,3]],
+        }
         self.upsample = [
             nn.Upsample(scale_factor=(1,2,2)) for i in decode_inds
         ]
@@ -31,14 +32,14 @@ class Pyramid3DDecoder(nn.Module):
             self.upconv_0s = nn.ModuleList([
                 ConvLSTM(
                     input_dim=pic_dim,
-                    hidden_dim=decoder_channels[decode_inds[0]] / 4,
+                    hidden_dim=decoder_channels[decode_inds[0]],
                     num_layers=1,
                     return_all_layers=True,
                     batch_first=True,
-                    **conv2d_kwargs
+                    **convLSTM_kwargs
                 )] + [
                     nn.Sequential(
-                        nn.Conv2d(in_channels=1, out_channels=decoder_channels[i], **conv2d_kwargs), 
+                        nn.Conv2d(in_channels=decoder_channels[i+shallow_decode], out_channels=decoder_channels[i], **conv2d_kwargs), 
                         nn.ELU()
                     ) for i in decode_inds[1:]
                 ])
@@ -144,11 +145,14 @@ class Pyramid3DDecoder(nn.Module):
             flow_res = res_list[0]
             flow_ff_res = res_list[1]
             res_list = res_list[2:]
-        
+        iterator = 0
         for upsample,uconv_0 in zip(self.upsample,self.upconv_0s):
             x = x.permute(0,4,1,2,3) # B, C, D, H, W
             x = upsample(x)
             B, C, D, H, W = x.size()
+            #print(iterator)
+            #print(B, C, D, H, W)
+            iterator+=1
             x = x.permute(0,2,1,3,4) # change to B, D, C, H, W
             x = x.reshape([-1, C, H, W]) # B*D, C, H, W
             x = uconv_0(x)
@@ -177,6 +181,7 @@ class Pyramid3DDecoder(nn.Module):
                 flow_ff_res = flow_ff_res.permute(0,4,1,2,3)
                 flow_x = x + self.res_f(flow_res).permute(0,2,3,4,1) + self.res_f(flow_ff_res).permute(0,2,3,4,1)
             i+=1
+        #exit()
         B, D, H, W, C = x.size()
         x = x.permute(0,1,4,2,3) # B, D, C, H, W
         x = x.reshape([-1, C, H, W]) # B*D, C, H, W

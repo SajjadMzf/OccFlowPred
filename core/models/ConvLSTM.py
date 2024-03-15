@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-
+import pdb
 
 class ConvLSTMCell(nn.Module):
 
@@ -23,12 +23,11 @@ class ConvLSTMCell(nn.Module):
         super(ConvLSTMCell, self).__init__()
 
         self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
+        self.hidden_dim = int(hidden_dim)
 
         self.kernel_size = kernel_size
         self.padding = kernel_size[0] // 2, kernel_size[1] // 2
         self.bias = bias
-
         self.conv = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim,
                               out_channels=4 * self.hidden_dim,
                               kernel_size=self.kernel_size,
@@ -87,8 +86,7 @@ class ConvLSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, num_layers,
                  batch_first=False, bias=True, return_all_layers=False):
         super(ConvLSTM, self).__init__()
-
-        self._check_kernel_size_consistency(kernel_size)
+        #self._check_kernel_size_consistency(kernel_size)
 
         # Make sure that both `kernel_size` and `hidden_dim` are lists having len == num_layers
         kernel_size = self._extend_for_multilayer(kernel_size, num_layers)
@@ -115,7 +113,7 @@ class ConvLSTM(nn.Module):
 
         self.cell_list = nn.ModuleList(cell_list)
 
-    def forward(self, input_tensor, hidden_state=None):
+    def forward(self, input_tensor, hidden_state=None, D=8):
         """
         Parameters
         ----------
@@ -127,6 +125,9 @@ class ConvLSTM(nn.Module):
         -------
         last_state_list, layer_output
         """
+        BD, C, H, W = input_tensor.size()
+        B = BD//D
+        input_tensor = input_tensor.reshape(B, D, C, H, W)
         if not self.batch_first:
             # (t, b, c, h, w) -> (b, t, c, h, w)
             input_tensor = input_tensor.permute(1, 0, 2, 3, 4)
@@ -165,8 +166,10 @@ class ConvLSTM(nn.Module):
         if not self.return_all_layers:
             layer_output_list = layer_output_list[-1:]
             last_state_list = last_state_list[-1:]
-
-        return layer_output_list, last_state_list
+        layer_output = layer_output_list[0]
+        B, D, C, H, W = layer_output.size()
+        layer_output = layer_output.reshape(B*D, C, H, W)
+        return  layer_output#, last_state_list
 
     def _init_hidden(self, batch_size, image_size):
         init_states = []
@@ -184,4 +187,4 @@ class ConvLSTM(nn.Module):
     def _extend_for_multilayer(param, num_layers):
         if not isinstance(param, list):
             param = [param] * num_layers
-        return 
+        return param
